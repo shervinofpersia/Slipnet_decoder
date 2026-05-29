@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 def download_apk(url, output="slipnet.apk"):
-    print(f"📥 دانلود APK...")
+    print(f"📥 دانلود APK از: {url}")
     response = requests.get(url, stream=True)
     response.raise_for_status()
     with open(output, 'wb') as f:
@@ -16,7 +16,7 @@ def download_apk(url, output="slipnet.apk"):
     return output
 
 def extract_so_files(apk_path, extract_dir="extracted"):
-    print("📦 استخراج تمام فایل‌های .so ...")
+    print("📦 استخراج فایل‌های .so ...")
     os.makedirs(extract_dir, exist_ok=True)
     with zipfile.ZipFile(apk_path, 'r') as zip_ref:
         for file in zip_ref.namelist():
@@ -43,29 +43,31 @@ def extract_strings(so_path):
     except:
         return []
 
-def advanced_crypto_search(strings):
-    results = []
-    keywords = ['aes', 'gcm', 'key', 'encrypt', 'decrypt', 'iv', 'nonce', 'slipnet', 
-                'secret', 'hardcode', 'hkdf', 'ntor', 'x25519', 'obfs', 'cipher']
+def advanced_search(strings):
+    findings = []
+    # الگوهای مختلف کلید
+    patterns = [
+        r'\b[a-fA-F0-9]{64}\b',           # 32-byte hex
+        r'[A-Za-z0-9+/=]{40,88}',         # Base64 مشکوک
+        r'0x[a-fA-F0-9]{64}',             # 0x prefixed
+    ]
+    
+    keywords = ['aes', 'gcm', 'encrypt', 'decrypt', 'iv', 'nonce', 'slipnet', 
+                'secret', 'hardcode', 'hkdf', 'ntor', 'x25519', 'obfs', 'cipher',
+                'key', 'master', 'private', 'public']
 
     for s in strings:
         s_lower = s.lower()
         if any(k in s_lower for k in keywords):
-            results.append(s)
+            findings.append(s)
             continue
         
-        # جستجوی کلیدهای ۳۲ بایتی hex (64 کاراکتر)
-        hex32 = re.findall(r'\b[a-fA-F0-9]{64}\b', s)
-        if hex32:
-            results.append(f"[POSSIBLE AES-256 KEY] {s}")
-        
-        # جستجوی Base64 مشکوک (طول تقریبی ۳۲ بایت)
-        b64 = re.findall(r'[A-Za-z0-9+/=]{40,88}', s)
-        for b in b64:
-            if len(b) % 4 == 0 and ('=' in b or len(b) > 50):
-                results.append(f"[POSSIBLE BASE64 KEY] {b}")
+        for pattern in patterns:
+            matches = re.findall(pattern, s)
+            for m in matches:
+                findings.append(f"[POSSIBLE KEY] {m}  |  Original: {s[:150]}...")
 
-    return results
+    return findings
 
 def main(apk_url):
     apk_file = "slipnet.apk"
@@ -76,21 +78,28 @@ def main(apk_url):
     
     all_strings = []
     crypto_findings = []
+    important_files = ['libslipstream.so', 'libslipnet.so', 'libgojni.so', 'libobfs4proxy.so']
     
     for root, _, files in os.walk(so_dir):
         for file in files:
             if file.endswith('.so'):
                 path = os.path.join(root, file)
                 print(f"🔍 پردازش: {file}")
+                
                 strings = extract_strings(path)
                 all_strings.extend(strings)
                 
-                crypto = advanced_crypto_search(strings)
+                crypto = advanced_search(strings)
                 if crypto:
-                    print(f"   🔑 {len(crypto)} مورد مشکوک پیدا شد")
+                    print(f"   🔑 {len(crypto)} مورد مشکوک در {file}")
                     crypto_findings.extend(crypto)
+                
+                # اولویت بالاتر برای فایل‌های مهم
+                if any(imp in file for imp in important_files):
+                    with open(f"{file}_strings.txt", "w", encoding="utf-8") as f:
+                        f.write("\n".join(strings))
     
-    # ذخیره خروجی
+    # ذخیره خروجی نهایی
     with open("all_strings.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(all_strings))
     
@@ -99,13 +108,11 @@ def main(apk_url):
     
     with open("summary.txt", "w", encoding="utf-8") as f:
         f.write(f"تعداد کل رشته‌ها: {len(all_strings):,}\n")
-        f.write(f"موارد مرتبط با رمزنگاری: {len(crypto_findings)}\n")
-        f.write(f"فایل‌های .so پردازش شده: {len([f for r,d,fs in os.walk(so_dir) for f in fs if f.endswith('.so')])}\n")
+        f.write(f"موارد رمزنگاری مشکوک: {len(crypto_findings)}\n")
+        f.write(f"فایل‌های مهم پردازش شده: {len(important_files)}\n")
     
     print("\n🎉 تمام شد!")
-    print(f"   کل رشته‌ها → all_strings.txt")
-    print(f"   یافته‌های مهم → crypto_keys.txt")
-    print(f"   خلاصه → summary.txt")
+    print("فایل‌های تولید شده: all_strings.txt , crypto_keys.txt , summary.txt")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
