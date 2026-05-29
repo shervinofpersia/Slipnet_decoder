@@ -1,0 +1,37 @@
+name: SlipNet APK Extractor
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: 'آدرس مستقیم APK'
+        required: true
+        default: 'https://github.com/anonvector/SlipNet/releases/download/v2.5.5/SlipNet-v2.5.5-full-release-arm64-v8a.apk'
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run Extractor
+        run: python extract_slipnet.py "${{ inputs.apk_url }}"
+
+      - name: Upload Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: slipnet-analysis-results
+          path: |
+            all_strings.txt
+            crypto_keys.txt
+            extracted_so/
