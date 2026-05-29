@@ -1,27 +1,27 @@
 import requests
 import zipfile
 import os
+import re
 import sys
 from pathlib import Path
 
 def download_apk(url, output="slipnet.apk"):
-    print(f"📥 دانلود APK از: {url}")
+    print(f"📥 دانلود APK...")
     response = requests.get(url, stream=True)
     response.raise_for_status()
     with open(output, 'wb') as f:
         for chunk in response.iter_content(chunk_size=8192):
             f.write(chunk)
-    print(f"✅ دانلود کامل شد: {output}")
+    print("✅ دانلود کامل شد")
     return output
 
 def extract_so_files(apk_path, extract_dir="extracted"):
-    print("📦 استخراج فایل‌های .so ...")
+    print("📦 استخراج تمام فایل‌های .so ...")
     os.makedirs(extract_dir, exist_ok=True)
     with zipfile.ZipFile(apk_path, 'r') as zip_ref:
         for file in zip_ref.namelist():
             if file.endswith('.so'):
                 zip_ref.extract(file, extract_dir)
-                print(f"استخراج: {file}")
     return extract_dir
 
 def extract_strings(so_path):
@@ -43,10 +43,29 @@ def extract_strings(so_path):
     except:
         return []
 
-def search_crypto(strings):
+def advanced_crypto_search(strings):
+    results = []
     keywords = ['aes', 'gcm', 'key', 'encrypt', 'decrypt', 'iv', 'nonce', 'slipnet', 
-                'secret', 'hardcode', '0x', 'hkdf', 'ntor', 'x25519', 'obfs']
-    return [s for s in strings if any(k in s.lower() for k in keywords)]
+                'secret', 'hardcode', 'hkdf', 'ntor', 'x25519', 'obfs', 'cipher']
+
+    for s in strings:
+        s_lower = s.lower()
+        if any(k in s_lower for k in keywords):
+            results.append(s)
+            continue
+        
+        # جستجوی کلیدهای ۳۲ بایتی hex (64 کاراکتر)
+        hex32 = re.findall(r'\b[a-fA-F0-9]{64}\b', s)
+        if hex32:
+            results.append(f"[POSSIBLE AES-256 KEY] {s}")
+        
+        # جستجوی Base64 مشکوک (طول تقریبی ۳۲ بایت)
+        b64 = re.findall(r'[A-Za-z0-9+/=]{40,88}', s)
+        for b in b64:
+            if len(b) % 4 == 0 and ('=' in b or len(b) > 50):
+                results.append(f"[POSSIBLE BASE64 KEY] {b}")
+
+    return results
 
 def main(apk_url):
     apk_file = "slipnet.apk"
@@ -65,20 +84,28 @@ def main(apk_url):
                 print(f"🔍 پردازش: {file}")
                 strings = extract_strings(path)
                 all_strings.extend(strings)
-                crypto = search_crypto(strings)
+                
+                crypto = advanced_crypto_search(strings)
                 if crypto:
-                    print(f"   🔑 {len(crypto)} مورد مرتبط پیدا شد")
+                    print(f"   🔑 {len(crypto)} مورد مشکوک پیدا شد")
                     crypto_findings.extend(crypto)
     
+    # ذخیره خروجی
     with open("all_strings.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(all_strings))
     
     with open("crypto_keys.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(crypto_findings))
     
+    with open("summary.txt", "w", encoding="utf-8") as f:
+        f.write(f"تعداد کل رشته‌ها: {len(all_strings):,}\n")
+        f.write(f"موارد مرتبط با رمزنگاری: {len(crypto_findings)}\n")
+        f.write(f"فایل‌های .so پردازش شده: {len([f for r,d,fs in os.walk(so_dir) for f in fs if f.endswith('.so')])}\n")
+    
     print("\n🎉 تمام شد!")
-    print(f"   تعداد کل رشته‌ها: {len(all_strings):,}")
-    print(f"   موارد رمزنگاری: {len(crypto_findings)}")
+    print(f"   کل رشته‌ها → all_strings.txt")
+    print(f"   یافته‌های مهم → crypto_keys.txt")
+    print(f"   خلاصه → summary.txt")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
