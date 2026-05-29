@@ -27,11 +27,19 @@ jobs:
       - name: Run Extractor
         run: python extract_slipnet.py "${{ inputs.apk_url }}"
 
-      - name: Upload Results
-        uses: actions/upload-artifact@v4
-        with:
-          name: slipnet-analysis-results
-          path: |
-            all_strings.txt
-            crypto_keys.txt
-            extracted_so/
+      - name: Commit results to repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add all_strings.txt crypto_keys.txt
+          git commit -m "Update SlipNet analysis results - $(date)" || echo "No changes to commit"
+          git push
+
+      - name: Show Raw Links
+        run: |
+          echo "=== لینک‌های Raw مستقیم ==="
+          echo "all_strings.txt:"
+          echo "https://raw.githubusercontent.com/${{ github.repository }}/main/all_strings.txt"
+          echo ""
+          echo "crypto_keys.txt:"
+          echo "https://raw.githubusercontent.com/${{ github.repository }}/main/crypto_keys.txt"
